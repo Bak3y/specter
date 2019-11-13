@@ -37,6 +37,10 @@ type connection struct {
 	HTTPStatus string
 }
 
+type geolookup interface {
+	LookupIP(ipStr string) (maxmind.Record, error)
+}
+
 var ipCache *ttlcache.TTLSet
 
 func init() {
@@ -54,6 +58,10 @@ func (c *Client) Write(b []byte) {
 }
 
 func (c *Client) parseResponse(body []byte) ([]byte, error) {
+	return c.oldparseResponse(body, c.maxMind)
+}
+
+func (c *Client) oldparseResponse(body []byte, geolookup geolookup) ([]byte, error) {
 	var rb params
 	err := json.Unmarshal(body, &rb)
 	if err != nil {
@@ -79,7 +87,7 @@ func (c *Client) parseResponse(body []byte) ([]byte, error) {
 	if ok := ipCache.Exist(conn.SrcIP); !ok {
 		// we have seen this ip before.
 		ipCache.Put(conn.SrcIP)
-		srcRecord, err := c.maxMind.LookupIP(conn.SrcIP)
+		srcRecord, err := geolookup.LookupIP(conn.SrcIP)
 		if err != nil {
 			return nil, err
 		}
@@ -87,7 +95,7 @@ func (c *Client) parseResponse(body []byte) ([]byte, error) {
 		conn.SrcLong = srcRecord.Location.Longitude
 
 		conn.DstIP = rb.DstIP
-		dstRecord, err := c.maxMind.LookupIP(conn.DstIP)
+		dstRecord, err := geolookup.LookupIP(conn.DstIP)
 		if err != nil {
 			return nil, err
 		}

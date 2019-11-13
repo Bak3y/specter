@@ -10,6 +10,16 @@ import (
 
 var db = flag.String("db", "./GeoList2-City.mmdb", "path to maxmind db")
 
+type mockGeoLookup struct {
+	maxmind.MaxMind
+	result  maxmind.Record
+	readErr error
+}
+
+func (m mockGeoLookup) LookupIP(ipStr string) (maxmind.Record, error) {
+	return m.result, m.readErr
+}
+
 func TestNew(t *testing.T) {
 	type args struct {
 		maxMind maxmind.MaxMind
@@ -65,7 +75,8 @@ func TestClient_parseResponse(t *testing.T) {
 		rchan   chan []byte
 	}
 	type args struct {
-		body []byte
+		body  []byte
+		geoip mockGeoLookup
 	}
 	type params struct {
 		SrcIP      string `json:"src_ip"`
@@ -93,7 +104,15 @@ func TestClient_parseResponse(t *testing.T) {
 		{
 			name: "Works with valid data",
 			args: args{
-				[]byte(`{"src_ip":"54.86.88.147","dst_ip":"146.148.55.211","http_status":"200","http_x_forwarded_for":"54.86.88.147"}`),
+				body: []byte(`{"src_ip":"54.86.88.147","dst_ip":"146.148.55.211","http_status":"200","http_x_forwarded_for":"54.86.88.147"}`),
+				geoip: mockGeoLookup{
+					result: maxmind.Record{
+					location: maxmind.Record.Location{
+							Latitue:  	33.5172628,
+							Longitude: -86.808349,
+						},
+					},
+				},
 			},
 			want:    connection{},
 			wantErr: false,
@@ -101,7 +120,13 @@ func TestClient_parseResponse(t *testing.T) {
 		{
 			name: "Breaks with invalid data",
 			args: args{
-				[]byte(`{"src_ip":"54.86.88.147","dst_ip":"","http_status":"200","http_x_forwarded_for":"54.86.88.147"}`),
+				body: []byte(`{"src_ip":"54.86.88.147","dst_ip":"","http_status":"200","http_x_forwarded_for":"54.86.88.147"}`),
+				geoip: mockGeoLookup{
+					result: maxmind.Record{
+						maxmind.Record.Location.Latitude:  33.5172628,
+						maxmind.Record.Location.Longitude: -86.808349,
+					},
+				},
 			},
 			want:    connection{},
 			wantErr: false,
@@ -114,7 +139,7 @@ func TestClient_parseResponse(t *testing.T) {
 				qchan:   tt.fields.qchan,
 				rchan:   tt.fields.rchan,
 			}
-			got, err := c.parseResponse(tt.args.body)
+			got, err := c.oldparseResponse(tt.args.body, g)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Client.parseResponse() error = %v, wantErr %v", err, tt.wantErr)
 				return
